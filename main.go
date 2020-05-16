@@ -8,11 +8,11 @@ import (
 	"fmt"
 	"io/ioutil"
 	"log"
-	"math"
 	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime/pprof"
 	"strings"
 	"sync"
 	"time"
@@ -39,22 +39,35 @@ func main() {
 	var visible bool
 	flag.BoolVar(&visible, "visible", false, "If true, won't use headless")
 	flag.BoolVar(&visible, "v", false, "If true, won't use headless")
+	var cpuprofile string
+	flag.StringVar(&cpuprofile, "profile", "", "File to save CPU profile of program in.")
+	flag.StringVar(&cpuprofile, "p", "", "File to save CPU profile of program in")
 
 	flag.Parse()
 
-	var pctx context.Context
-	if visible {
-		allocCtx, execCancel := chromedp.NewExecAllocator(context.Background())
-		defer execCancel()
-
-		var pcancel context.CancelFunc
-		pctx, pcancel = chromedp.NewContext(allocCtx)
-		defer pcancel()
-	} else {
-		var pcancel context.CancelFunc
-		pctx, pcancel = chromedp.NewContext(context.Background())
-		defer pcancel()
+	if cpuprofile != "" {
+		f, err := os.Create(cpuprofile)
+		if err != nil {
+			log.Fatal(err)
+		}
+		pprof.StartCPUProfile(f)
+		defer pprof.StopCPUProfile()
 	}
+
+	opts := append(chromedp.DefaultExecAllocatorOptions[:],
+		chromedp.DisableGPU,
+		chromedp.NoDefaultBrowserCheck,
+
+		chromedp.Flag("ignore-certificate-errors", true),
+	)
+	opts = append(opts, chromedp.Flag("headless", !visible))
+
+	allocCtx, execCancel := chromedp.NewExecAllocator(context.Background(), opts...)
+	defer execCancel()
+
+	var pcancel context.CancelFunc
+	pctx, pcancel := chromedp.NewContext(allocCtx)
+	defer pcancel()
 
 	// start the browser to ensure we end up making new tabs in an
 	// existing browser instead of making a new browser each time.
@@ -85,7 +98,7 @@ func main() {
 		wg.Add(1)
 		go func() {
 			for requestURL := range jobs {
-				ctx, cancel := context.WithTimeout(pctx, time.Second*10)
+				ctx, cancel := context.WithTimeout(pctx, time.Second*20)
 				defer cancel()
 
 				ctx, _ = chromedp.NewContext(ctx)
@@ -111,7 +124,6 @@ func main() {
 					continue
 				}
 
-				// cancel()
 			}
 			wg.Done()
 		}()
@@ -133,19 +145,6 @@ func handleError(err error, errorContextInfo string) {
 	err = writeDataFile(errorLogdata, "errorLog.txt", true)
 }
 
-func index(vs []string, t string) int {
-	for i, v := range vs {
-		if v == t {
-			return i
-		}
-	}
-	return -1
-}
-
-func include(vs []string, t string) bool {
-	return index(vs, t) >= 0
-}
-
 func makeFilepath(prefix, requestURL string) (string, error) {
 	u, err := url.Parse(requestURL)
 	if err != nil {
@@ -157,9 +156,12 @@ func makeFilepath(prefix, requestURL string) (string, error) {
 		requestPath = "/index"
 	}
 
+	re := regexp.MustCompile("[^a-zA-Z0-9_.%-]")
+	requestPath = re.ReplaceAllString(requestPath, "-")
+
 	savePath := fmt.Sprintf("%s/%s%s", prefix, u.Hostname(), requestPath)
 
-	re := regexp.MustCompile("[^a-zA-Z0-9_.%/-]")
+	re = regexp.MustCompile("[^a-zA-Z0-9_.%/-]")
 	savePath = re.ReplaceAllString(savePath, "-")
 	// remove multiple dashes in a row
 	re = regexp.MustCompile("-+")
@@ -228,18 +230,15 @@ func fullScreenshot(urlstr string, quality int64, res *[]byte) chromedp.Tasks {
 	return chromedp.Tasks{
 		chromedp.Navigate(urlstr),
 		chromedp.ActionFunc(func(ctx context.Context) error {
-			// get layout metrics
-			_, _, contentSize, err := page.GetLayoutMetrics().Do(ctx)
-			if err != nil {
-				return err
-			}
 
-			width, height := int64(math.Ceil(contentSize.Width)), int64(math.Ceil(contentSize.Height))
+			//width, height := int64(math.Ceil(contentSize.Width)), int64(math.Ceil(contentSize.Height))
+			width := int64(1920)
+			height := int64(1080)
 
 			// force viewport emulation
-			err = emulation.SetDeviceMetricsOverride(width, height, 1, false).
+			err := emulation.SetDeviceMetricsOverride(width, height, 1, false).
 				WithScreenOrientation(&emulation.ScreenOrientation{
-					Type:  emulation.OrientationTypePortraitPrimary,
+					Type:  emulation.OrientationTypeLandscapePrimary,
 					Angle: 0,
 				}).
 				Do(ctx)
@@ -251,12 +250,13 @@ func fullScreenshot(urlstr string, quality int64, res *[]byte) chromedp.Tasks {
 			*res, err = page.CaptureScreenshot().
 				WithQuality(quality).
 				WithClip(&page.Viewport{
-					X:      contentSize.X,
-					Y:      contentSize.Y,
-					Width:  contentSize.Width,
-					Height: contentSize.Height,
+					X:      0,
+					Y:      0,
+					Width:  float64(width),
+					Height: float64(height),
 					Scale:  1,
 				}).Do(ctx)
+
 			if err != nil {
 				return err
 			}
