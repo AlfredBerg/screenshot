@@ -24,15 +24,12 @@ import (
 )
 
 func main() {
-	var overwrite bool
-	flag.BoolVar(&overwrite, "overwrite", false, "overwrite output files when they exist")
-	flag.BoolVar(&overwrite, "w", false, "overwrite output files when they exist")
 	var output string
 	flag.StringVar(&output, "output", "out", "output directory")
 	flag.StringVar(&output, "o", "out", "output directory")
 	var inFile string
-	flag.StringVar(&inFile, "input", "input", "input file if stdin is not used")
-	flag.StringVar(&inFile, "i", "input", "input file if stdin is not used")
+	flag.StringVar(&inFile, "input", "", "input file if stdin is not used")
+	flag.StringVar(&inFile, "i", "", "input file if stdin is not used")
 	var concurrency int
 	flag.IntVar(&concurrency, "concurrency", 2, "concurrency level")
 	flag.IntVar(&concurrency, "c", 2, "concurrency level")
