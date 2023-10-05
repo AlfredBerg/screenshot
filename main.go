@@ -156,7 +156,7 @@ func makeFilepath(prefix, requestURL string) (string, error) {
 	re := regexp.MustCompile("[^a-zA-Z0-9_.%-]")
 	requestPath = re.ReplaceAllString(requestPath, "-")
 
-	savePath := fmt.Sprintf("%s/%s%s", prefix, u.Hostname(), requestPath)
+	savePath := fmt.Sprintf("%s/%s-%s-%s", prefix, u.Hostname(), u.Port(), requestPath)
 
 	re = regexp.MustCompile("[^a-zA-Z0-9_.%/-]")
 	savePath = re.ReplaceAllString(savePath, "-")
